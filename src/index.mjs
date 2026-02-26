@@ -116,7 +116,9 @@ async function handleScan(request, env) {
   }
 
   // Queue for moderation
-  const videoUrl = url || `https://${env.CDN_DOMAIN}/${sha256}.mp4`;
+  // Blossom serves by hash without extension at media.divine.video
+  // CDN (cdn.divine.video) may also have it but uses different URL patterns
+  const videoUrl = url || `https://media.divine.video/${sha256}`;
 
   await env.MODERATION_QUEUE.send({
     sha256: sha256.toLowerCase(),
@@ -188,7 +190,7 @@ async function handleBatchScan(request, env) {
       continue;
     }
 
-    const videoUrl = url || `https://${env.CDN_DOMAIN}/${hash}.mp4`;
+    const videoUrl = url || `https://media.divine.video/${hash}`;
 
     await env.MODERATION_QUEUE.send({
       sha256: hash,
