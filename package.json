@@ -1,0 +1,15 @@
+{
+  "name": "divine-moderation-api",
+  "version": "1.0.0",
+  "description": "Public API for divine video moderation — queue producer + status checker",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0",
+    "vitest": "^3.0.0"
+  }
+}

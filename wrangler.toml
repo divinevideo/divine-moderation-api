@@ -1,0 +1,40 @@
+# Divine Moderation API — public-facing machine-to-machine worker
+# No Zero Trust — auth via Bearer token
+# Shares D1, KV, Queue, and R2 with divine-moderation-service
+name = "divine-moderation-api"
+main = "src/index.mjs"
+compatibility_date = "2024-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+routes = [
+  { pattern = "moderation-api.divine.video/*", zone_name = "divine.video" }
+]
+
+# Shared KV namespace (same as divine-moderation-service)
+[[kv_namespaces]]
+binding = "MODERATION_KV"
+id = "10af689fc82140ed9159eef3c1c47079"
+
+# Shared D1 database
+[[d1_databases]]
+binding = "BLOSSOM_DB"
+database_name = "blossom-webhook-events"
+database_id = "829f06cf-294b-4491-8611-30fc53df2589"
+
+# Queue producer — sends to the same queue consumed by divine-moderation-service
+[[queues.producers]]
+binding = "MODERATION_QUEUE"
+queue = "video-moderation-queue"
+
+# Shared R2 bucket
+[[r2_buckets]]
+binding = "R2_VIDEOS"
+bucket_name = "nostrvine-media"
+
+[vars]
+CDN_DOMAIN = "cdn.divine.video"
+
+# Secrets (set with: wrangler secret put <NAME>)
+# API_BEARER_TOKEN — shared secret for blossom/funnelcake auth
+# BLOSSOM_WEBHOOK_URL — callback URL for moderation results (https://media.divine.video/admin/moderate)
+# BLOSSOM_WEBHOOK_SECRET — Bearer token for blossom webhook auth
