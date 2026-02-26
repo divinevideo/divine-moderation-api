@@ -38,3 +38,4 @@ CDN_DOMAIN = "media.divine.video"
 # API_BEARER_TOKEN — shared secret for blossom/funnelcake auth
 # BLOSSOM_WEBHOOK_URL — callback URL for moderation results (https://media.divine.video/admin/moderate)
 # BLOSSOM_WEBHOOK_SECRET — Bearer token for blossom webhook auth
+# Note: BLOSSOM_WEBHOOK_URL and BLOSSOM_WEBHOOK_SECRET are needed for /api/v1/notify endpoint

@@ -48,6 +48,12 @@ export default {
         return corsResponse(await handleStatus(sha256, env));
       }
 
+      // POST /api/v1/notify/:sha256 — re-send blossom webhook for existing result
+      if (method === 'POST' && url.pathname.startsWith('/api/v1/notify/')) {
+        const sha256 = url.pathname.split('/')[4];
+        return corsResponse(await handleNotify(sha256, env));
+      }
+
       return corsResponse(jsonResponse(404, { error: 'Not found' }));
     } catch (error) {
       console.error('[API] Error:', error);
@@ -259,6 +265,58 @@ async function handleStatus(sha256, env) {
     blocked: result.action === 'PERMANENT_BAN',
     age_restricted: result.action === 'AGE_RESTRICTED',
     needs_review: result.action === 'REVIEW'
+  });
+}
+
+/**
+ * POST /api/v1/notify/:sha256
+ * Re-send blossom webhook for an already-moderated video
+ * Useful for backfill or retrying failed callbacks
+ */
+async function handleNotify(sha256, env) {
+  if (!sha256 || !/^[0-9a-f]{64}$/i.test(sha256)) {
+    return jsonResponse(400, { error: 'Invalid sha256' });
+  }
+
+  const hash = sha256.toLowerCase();
+
+  // Get existing moderation result
+  const result = await env.BLOSSOM_DB.prepare(
+    'SELECT sha256, action FROM moderation_results WHERE sha256 = ?'
+  ).bind(hash).first();
+
+  if (!result) {
+    return jsonResponse(404, { error: 'No moderation result found' });
+  }
+
+  // Send webhook to blossom
+  if (!env.BLOSSOM_WEBHOOK_URL) {
+    return jsonResponse(500, { error: 'BLOSSOM_WEBHOOK_URL not configured' });
+  }
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (env.BLOSSOM_WEBHOOK_SECRET) {
+    headers['Authorization'] = `Bearer ${env.BLOSSOM_WEBHOOK_SECRET}`;
+  }
+
+  const resp = await fetch(env.BLOSSOM_WEBHOOK_URL, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      sha256: hash,
+      action: result.action,
+      timestamp: new Date().toISOString()
+    })
+  });
+
+  const respText = await resp.text();
+  console.log(`[NOTIFY] Webhook for ${hash}: ${resp.status} ${respText}`);
+
+  return jsonResponse(200, {
+    sha256: hash,
+    action: result.action,
+    webhook_status: resp.status,
+    webhook_response: respText
   });
 }
 
