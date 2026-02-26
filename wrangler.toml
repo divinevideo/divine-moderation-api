@@ -32,7 +32,7 @@ binding = "R2_VIDEOS"
 bucket_name = "nostrvine-media"
 
 [vars]
-CDN_DOMAIN = "cdn.divine.video"
+CDN_DOMAIN = "media.divine.video"
 
 # Secrets (set with: wrangler secret put <NAME>)
 # API_BEARER_TOKEN — shared secret for blossom/funnelcake auth
