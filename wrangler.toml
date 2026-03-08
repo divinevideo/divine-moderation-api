@@ -36,5 +36,7 @@ CDN_DOMAIN = "media.divine.video"
 
 # Secrets (set with: wrangler secret put <NAME>)
 # API_BEARER_TOKEN — shared secret for blossom/funnelcake auth
+# SERVICE_API_TOKEN — alternate bearer token name shared with divine-moderation-service
+# MODERATION_API_KEY — alternate bearer token name used by some clients
 # BLOSSOM_WEBHOOK_URL — callback URL for moderation results (https://media.divine.video/admin/moderate)
 # BLOSSOM_WEBHOOK_SECRET — Bearer token for blossom webhook auth
