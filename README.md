@@ -5,6 +5,7 @@ Public-facing machine-to-machine API for divine video content moderation. This i
 **No Zero Trust** — authenticates via Bearer token. Designed to be called by:
 - **divine-blossom** (Fastly) — on video upload
 - **divine-funnelcake** (relay) — on new video events from any blossom server
+- **Enrichment jobs** — for classifier labels and recommendation features
 - **Backfill scripts** — for scanning existing unmoderated videos
 
 ## Architecture
@@ -78,6 +79,32 @@ curl https://moderation-api.divine.video/api/v1/status/abc123... \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+### `GET /api/v1/classifier/:sha256`
+
+Read the stored classifier payload for a moderated video.
+
+```bash
+curl https://moderation-api.divine.video/api/v1/classifier/abc123... \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### `GET /api/v1/classifier/:sha256/recommendations`
+
+Read the recommendation-friendly labels and weighted features used by Funnelcake and Gorse.
+
+```bash
+curl https://moderation-api.divine.video/api/v1/classifier/abc123.../recommendations \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### `GET /check-result/:sha256`
+
+Public moderation lookup for external clients such as divine-mobile.
+
+```bash
+curl https://moderation-api.divine.video/check-result/abc123...
+```
+
 ### `GET /health`
 
 No auth required. Returns service status.
@@ -89,6 +116,8 @@ npm install
 
 # Set the Bearer token for API auth
 wrangler secret put API_BEARER_TOKEN
+# Or reuse the secret name already present in divine-moderation-service
+wrangler secret put SERVICE_API_TOKEN
 
 # Deploy
 wrangler deploy

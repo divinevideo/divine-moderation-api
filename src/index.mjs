@@ -6,6 +6,9 @@
 //   POST /api/v1/scan          — Queue a video for moderation
 //   GET  /api/v1/status/:sha256 — Check moderation result
 //   POST /api/v1/batch-scan    — Queue multiple videos
+//   GET  /api/v1/classifier/:sha256 — Read stored classifier payload
+//   GET  /api/v1/classifier/:sha256/recommendations — Recommendation labels/features
+//   GET  /check-result/:sha256 — Public moderation result
 //   GET  /health               — Health check (no auth)
 
 export default {
@@ -25,6 +28,12 @@ export default {
         service: 'divine-moderation-api',
         timestamp: new Date().toISOString()
       }));
+    }
+
+    // Public result endpoint for clients such as divine-mobile.
+    if (method === 'GET' && url.pathname.startsWith('/check-result/')) {
+      const sha256 = url.pathname.split('/')[2];
+      return corsResponse(await handleCheckResult(sha256, env));
     }
 
     // All other endpoints require auth
@@ -48,6 +57,14 @@ export default {
         return corsResponse(await handleStatus(sha256, env));
       }
 
+      // GET /api/v1/classifier/:sha256[/recommendations] — classifier data for enrichment
+      if (method === 'GET' && url.pathname.startsWith('/api/v1/classifier/')) {
+        const pathParts = url.pathname.split('/').filter(Boolean);
+        const sha256 = pathParts[3];
+        const subRoute = pathParts[4] || null;
+        return corsResponse(await handleClassifier(sha256, subRoute, env));
+      }
+
       return corsResponse(jsonResponse(404, { error: 'Not found' }));
     } catch (error) {
       console.error('[API] Error:', error);
@@ -62,8 +79,10 @@ export default {
  * Verify Bearer token auth
  */
 function verifyAuth(request, env) {
-  if (!env.API_BEARER_TOKEN) {
-    console.error('[AUTH] API_BEARER_TOKEN not configured');
+  const validTokens = getValidBearerTokens(env);
+
+  if (validTokens.length === 0) {
+    console.error('[AUTH] No API bearer token configured');
     return jsonResponse(500, { error: 'Server misconfigured — no auth token set' });
   }
 
@@ -73,11 +92,16 @@ function verifyAuth(request, env) {
   }
 
   const token = authHeader.slice(7);
-  if (token !== env.API_BEARER_TOKEN) {
+  if (!validTokens.includes(token)) {
     return jsonResponse(403, { error: 'Invalid token' });
   }
 
   return null; // Auth OK
+}
+
+function getValidBearerTokens(env) {
+  return [env.API_BEARER_TOKEN, env.SERVICE_API_TOKEN, env.MODERATION_API_KEY]
+    .filter((value, index, all) => typeof value === 'string' && value.length > 0 && all.indexOf(value) === index);
 }
 
 /**
@@ -228,9 +252,47 @@ async function handleStatus(sha256, env) {
     return jsonResponse(400, { error: 'Invalid sha256' });
   }
 
-  const hash = sha256.toLowerCase();
+  const result = await getModerationResult(sha256, env);
+  return jsonResponse(200, statusPayloadFromResult(result));
+}
 
-  // Check D1
+async function handleCheckResult(sha256, env) {
+  if (!sha256 || !/^[0-9a-f]{64}$/i.test(sha256)) {
+    return jsonResponse(400, { error: 'Invalid sha256' });
+  }
+
+  const result = await getModerationResult(sha256, env);
+  return jsonResponse(200, publicPayloadFromResult(result));
+}
+
+async function handleClassifier(sha256, subRoute, env) {
+  if (!sha256 || !/^[0-9a-f]{64}$/i.test(sha256)) {
+    return jsonResponse(400, { error: 'Invalid sha256 hash' });
+  }
+
+  const hash = sha256.toLowerCase();
+  const classifierData = await env.MODERATION_KV.get(`classifier:${hash}`);
+
+  if (!classifierData) {
+    return jsonResponse(404, {
+      sha256: hash,
+      classifier_data: null,
+      message: 'No classifier data available for this hash'
+    });
+  }
+
+  if (subRoute === 'recommendations') {
+    const parsed = JSON.parse(classifierData);
+    return jsonResponse(200, await recommendationPayloadFromClassifier(hash, parsed, env));
+  }
+
+  return new Response(classifierData, {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+async function getModerationResult(sha256, env) {
+  const hash = sha256.toLowerCase();
   const result = await env.BLOSSOM_DB.prepare(`
     SELECT sha256, action, provider, scores, categories, moderated_at, reviewed_by, reviewed_at
     FROM moderation_results
@@ -238,15 +300,20 @@ async function handleStatus(sha256, env) {
   `).bind(hash).first();
 
   if (!result) {
-    return jsonResponse(200, {
+    return {
       sha256: hash,
       moderated: false,
       action: null,
-      message: 'No moderation result found'
-    });
+      provider: null,
+      scores: null,
+      categories: null,
+      moderated_at: null,
+      reviewed_by: null,
+      reviewed_at: null
+    };
   }
 
-  return jsonResponse(200, {
+  return {
     sha256: hash,
     moderated: true,
     action: result.action,
@@ -255,11 +322,151 @@ async function handleStatus(sha256, env) {
     categories: result.categories ? JSON.parse(result.categories) : null,
     moderated_at: result.moderated_at,
     reviewed_by: result.reviewed_by,
+    reviewed_at: result.reviewed_at
+  };
+}
+
+function statusPayloadFromResult(result) {
+  if (!result.moderated) {
+    return {
+      sha256: result.sha256,
+      moderated: false,
+      action: null,
+      message: 'No moderation result found'
+    };
+  }
+
+  return {
+    sha256: result.sha256,
+    moderated: true,
+    action: result.action,
+    provider: result.provider,
+    scores: result.scores,
+    categories: result.categories,
+    moderated_at: result.moderated_at,
+    reviewed_by: result.reviewed_by,
     reviewed_at: result.reviewed_at,
     blocked: result.action === 'PERMANENT_BAN',
     age_restricted: result.action === 'AGE_RESTRICTED',
     needs_review: result.action === 'REVIEW'
-  });
+  };
+}
+
+function publicPayloadFromResult(result) {
+  if (!result.moderated) {
+    return {
+      sha256: result.sha256,
+      status: 'unknown',
+      moderated: false,
+      blocked: false,
+      age_restricted: false
+    };
+  }
+
+  return {
+    sha256: result.sha256,
+    status: result.action.toLowerCase(),
+    moderated: true,
+    blocked: result.action === 'PERMANENT_BAN',
+    quarantined: result.action === 'QUARANTINE',
+    age_restricted: result.action === 'AGE_RESTRICTED',
+    needs_review: result.action === 'REVIEW' || result.action === 'QUARANTINE' || result.action === 'PERMANENT_BAN',
+    action: result.action,
+    provider: result.provider,
+    scores: result.scores,
+    categories: result.categories,
+    moderated_at: result.moderated_at,
+    reviewed_by: result.reviewed_by,
+    reviewed_at: result.reviewed_at
+  };
+}
+
+async function recommendationPayloadFromClassifier(sha256, parsed, env) {
+  const allLabels = [];
+  const allFeatures = {};
+
+  if (parsed.sceneClassification) {
+    allLabels.push(...formatForGorse(parsed.sceneClassification));
+    Object.assign(allFeatures, formatForFunnelcake(parsed.sceneClassification));
+  }
+
+  if (parsed.topicProfile) {
+    allLabels.push(...topicsToLabels(parsed.topicProfile));
+    Object.assign(allFeatures, topicsToWeightedFeatures(parsed.topicProfile));
+  }
+
+  if (parsed.rawClassifierData?.maxScores) {
+    for (const [key, value] of Object.entries(parsed.rawClassifierData.maxScores)) {
+      if (typeof value === 'number') {
+        allFeatures[key] = value;
+      }
+    }
+  }
+
+  const moderationResult = await env.BLOSSOM_DB.prepare(
+    'SELECT action FROM moderation_results WHERE sha256 = ?'
+  ).bind(sha256).first();
+
+  const action = moderationResult?.action || 'UNKNOWN';
+
+  return {
+    sha256,
+    gorse: {
+      labels: [...new Set(allLabels)],
+      features: allFeatures
+    },
+    description: parsed.sceneClassification?.description || null,
+    primary_topic: parsed.topicProfile?.primary_topic || null,
+    has_speech: parsed.topicProfile?.has_speech || false,
+    is_safe: action === 'SAFE',
+    action
+  };
+}
+
+function formatForGorse(classificationResult) {
+  if (!classificationResult || classificationResult.skipped) {
+    return [];
+  }
+
+  return (classificationResult.labels || []).map(
+    ({ label, namespace }) => `${namespace}:${label}`
+  );
+}
+
+function formatForFunnelcake(classificationResult) {
+  if (!classificationResult || classificationResult.skipped) {
+    return {};
+  }
+
+  const features = {};
+  for (const { label, namespace, score } of (classificationResult.labels || [])) {
+    features[`${namespace}:${label}`] = score;
+  }
+  return features;
+}
+
+function topicsToLabels(result, minConfidence = 0.3) {
+  if (!result || !result.topics) {
+    return [];
+  }
+
+  return result.topics
+    .filter((topic) => topic.confidence >= minConfidence)
+    .map((topic) => `topic:${topic.category}`);
+}
+
+function topicsToWeightedFeatures(result, minConfidence = 0.15) {
+  if (!result || !result.topics) {
+    return {};
+  }
+
+  const features = {};
+  for (const topic of result.topics) {
+    if (topic.confidence >= minConfidence) {
+      features[`topic:${topic.category}`] = topic.confidence;
+    }
+  }
+  return features;
 }
 
 // --- Helpers ---
