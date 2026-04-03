@@ -478,62 +478,17 @@ function jsonResponse(status, data) {
   });
 }
 
-const APP_ORIGIN = 'https://app.divine.video';
-const PREVIEW_SUFFIX = '.openvine-app.pages.dev';
 const ALLOW_METHODS = 'GET, POST, PUT, DELETE, OPTIONS';
 const ALLOW_HEADERS = 'Content-Type, Authorization, X-Requested-With';
 const MAX_AGE = '86400';
 
-function resolveCorsOrigin(request) {
-  const origin = request.headers.get('Origin');
-  if (!origin) {
-    return null;
-  }
-
-  if (origin === APP_ORIGIN) {
-    return origin;
-  }
-
-  try {
-    const url = new URL(origin);
-    if (url.protocol !== 'https:' || url.port !== '' || url.hostname === 'openvine-app.pages.dev') {
-      return null;
-    }
-
-    return url.hostname.endsWith(PREVIEW_SUFFIX) ? origin : null;
-  } catch {
-    return null;
-  }
-}
-
-function appendVary(headers, value) {
-  const current = headers.get('Vary');
-  if (!current) {
-    headers.set('Vary', value);
-    return;
-  }
-
-  const values = current.split(',').map((part) => part.trim());
-  if (!values.includes(value)) {
-    values.push(value);
-    headers.set('Vary', values.join(', '));
-  }
-}
-
 function corsResponse(response, request) {
   const headers = new Headers(response.headers);
-  const allowedOrigin = resolveCorsOrigin(request);
 
   headers.set('Access-Control-Allow-Methods', ALLOW_METHODS);
   headers.set('Access-Control-Allow-Headers', ALLOW_HEADERS);
   headers.set('Access-Control-Max-Age', MAX_AGE);
-
-  if (allowedOrigin) {
-    headers.set('Access-Control-Allow-Origin', allowedOrigin);
-    appendVary(headers, 'Origin');
-  } else {
-    headers.delete('Access-Control-Allow-Origin');
-  }
+  headers.set('Access-Control-Allow-Origin', '*');
 
   return new Response(response.body, {
     status: response.status,
