@@ -18,7 +18,7 @@ export default {
 
     // CORS preflight
     if (method === 'OPTIONS') {
-      return corsResponse(new Response(null, { status: 204 }));
+      return corsResponse(new Response(null, { status: 204 }), request);
     }
 
     // Health check — no auth
@@ -27,34 +27,34 @@ export default {
         status: 'ok',
         service: 'divine-moderation-api',
         timestamp: new Date().toISOString()
-      }));
+      }), request);
     }
 
     // Public result endpoint for clients such as divine-mobile.
     if (method === 'GET' && url.pathname.startsWith('/check-result/')) {
       const sha256 = url.pathname.split('/')[2];
-      return corsResponse(await handleCheckResult(sha256, env));
+      return corsResponse(await handleCheckResult(sha256, env), request);
     }
 
     // All other endpoints require auth
     const authError = verifyAuth(request, env);
-    if (authError) return corsResponse(authError);
+    if (authError) return corsResponse(authError, request);
 
     try {
       // POST /api/v1/scan — queue single video for moderation
       if (method === 'POST' && url.pathname === '/api/v1/scan') {
-        return corsResponse(await handleScan(request, env));
+        return corsResponse(await handleScan(request, env), request);
       }
 
       // POST /api/v1/batch-scan — queue multiple videos
       if (method === 'POST' && url.pathname === '/api/v1/batch-scan') {
-        return corsResponse(await handleBatchScan(request, env));
+        return corsResponse(await handleBatchScan(request, env), request);
       }
 
       // GET /api/v1/status/:sha256 — check moderation result
       if (method === 'GET' && url.pathname.startsWith('/api/v1/status/')) {
         const sha256 = url.pathname.split('/')[4];
-        return corsResponse(await handleStatus(sha256, env));
+        return corsResponse(await handleStatus(sha256, env), request);
       }
 
       // GET /api/v1/classifier/:sha256[/recommendations] — classifier data for enrichment
@@ -62,13 +62,13 @@ export default {
         const pathParts = url.pathname.split('/').filter(Boolean);
         const sha256 = pathParts[3];
         const subRoute = pathParts[4] || null;
-        return corsResponse(await handleClassifier(sha256, subRoute, env));
+        return corsResponse(await handleClassifier(sha256, subRoute, env), request);
       }
 
-      return corsResponse(jsonResponse(404, { error: 'Not found' }));
+      return corsResponse(jsonResponse(404, { error: 'Not found' }), request);
     } catch (error) {
       console.error('[API] Error:', error);
-      return corsResponse(jsonResponse(500, { error: error.message }));
+      return corsResponse(jsonResponse(500, { error: error.message }), request);
     }
   },
 
@@ -478,11 +478,63 @@ function jsonResponse(status, data) {
   });
 }
 
-function corsResponse(response) {
+const APP_ORIGIN = 'https://app.divine.video';
+const PREVIEW_SUFFIX = '.openvine-app.pages.dev';
+const ALLOW_METHODS = 'GET, POST, PUT, DELETE, OPTIONS';
+const ALLOW_HEADERS = 'Content-Type, Authorization, X-Requested-With';
+const MAX_AGE = '86400';
+
+function resolveCorsOrigin(request) {
+  const origin = request.headers.get('Origin');
+  if (!origin) {
+    return null;
+  }
+
+  if (origin === APP_ORIGIN) {
+    return origin;
+  }
+
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== 'https:' || url.port !== '' || url.hostname === 'openvine-app.pages.dev') {
+      return null;
+    }
+
+    return url.hostname.endsWith(PREVIEW_SUFFIX) ? origin : null;
+  } catch {
+    return null;
+  }
+}
+
+function appendVary(headers, value) {
+  const current = headers.get('Vary');
+  if (!current) {
+    headers.set('Vary', value);
+    return;
+  }
+
+  const values = current.split(',').map((part) => part.trim());
+  if (!values.includes(value)) {
+    values.push(value);
+    headers.set('Vary', values.join(', '));
+  }
+}
+
+function corsResponse(response, request) {
   const headers = new Headers(response.headers);
-  headers.set('Access-Control-Allow-Origin', '*');
-  headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  headers.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  const allowedOrigin = resolveCorsOrigin(request);
+
+  headers.set('Access-Control-Allow-Methods', ALLOW_METHODS);
+  headers.set('Access-Control-Allow-Headers', ALLOW_HEADERS);
+  headers.set('Access-Control-Max-Age', MAX_AGE);
+
+  if (allowedOrigin) {
+    headers.set('Access-Control-Allow-Origin', allowedOrigin);
+    appendVary(headers, 'Origin');
+  } else {
+    headers.delete('Access-Control-Allow-Origin');
+  }
+
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

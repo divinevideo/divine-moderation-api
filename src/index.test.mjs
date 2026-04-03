@@ -40,6 +40,44 @@ function createEnv(overrides = {}) {
 }
 
 describe('divine-moderation-api', () => {
+  it('echoes approved app origin on preflight', async () => {
+    const response = await worker.fetch(
+      new Request('https://moderation-api.divine.video/health', {
+        method: 'OPTIONS',
+        headers: {
+          'Origin': 'https://app.divine.video',
+          'Access-Control-Request-Method': 'GET',
+          'Access-Control-Request-Headers': 'Content-Type,Authorization,X-Requested-With'
+        }
+      }),
+      createEnv()
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.divine.video');
+    expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, PUT, DELETE, OPTIONS');
+    expect(response.headers.get('Access-Control-Allow-Headers')).toBe('Content-Type, Authorization, X-Requested-With');
+    expect(response.headers.get('Access-Control-Max-Age')).toBe('86400');
+    expect(response.headers.get('Vary')).toBe('Origin');
+  });
+
+  it('does not allow unknown origins on preflight', async () => {
+    const response = await worker.fetch(
+      new Request('https://moderation-api.divine.video/health', {
+        method: 'OPTIONS',
+        headers: {
+          'Origin': 'https://evil.example',
+          'Access-Control-Request-Method': 'GET',
+          'Access-Control-Request-Headers': 'Content-Type,Authorization,X-Requested-With'
+        }
+      }),
+      createEnv()
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+  });
+
   it('serves public /check-result without auth', async () => {
     const env = createEnv({
       BLOSSOM_DB: createDbMock({
@@ -62,13 +100,29 @@ describe('divine-moderation-api', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
     await expect(response.json()).resolves.toMatchObject({
       sha256: SHA256,
       moderated: true,
       action: 'SAFE',
       status: 'safe'
     });
+  });
+
+  it('echoes preview origin on actual responses', async () => {
+    const response = await worker.fetch(
+      new Request(`https://moderation-api.divine.video/check-result/${SHA256}`, {
+        headers: {
+          'Origin': 'https://pr-123.openvine-app.pages.dev'
+        }
+      }),
+      createEnv()
+    );
+
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://pr-123.openvine-app.pages.dev');
+    expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, PUT, DELETE, OPTIONS');
+    expect(response.headers.get('Access-Control-Allow-Headers')).toBe('Content-Type, Authorization, X-Requested-With');
+    expect(response.headers.get('Vary')).toBe('Origin');
   });
 
   it('accepts SERVICE_API_TOKEN as bearer auth', async () => {
