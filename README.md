@@ -1,6 +1,6 @@
 # Divine Moderation API
 
-Public-facing machine-to-machine API for divine video content moderation. This is a thin Cloudflare Worker that accepts scan requests and queues them for the [divine-moderation-service](https://github.com/divinevideo/divine-moderation-service) to process.
+Public-facing machine-to-machine API for Divine video content moderation. This is a thin Cloudflare Worker that accepts scan requests and queues them for the [divine-moderation-service](https://github.com/divinevideo/divine-moderation-service) to process.
 
 **No Zero Trust** — authenticates via Bearer token. Designed to be called by:
 - **divine-blossom** (Fastly) — on video upload
@@ -151,3 +151,7 @@ if event.is_video() {
     // POST to moderation-api.divine.video/api/v1/scan
 }
 ```
+
+---
+
+Part of [Divine](https://divine.video) — your playground for human creativity · [Brand guidelines](https://github.com/divinevideo/brand-guidelines)
