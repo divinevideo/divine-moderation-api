@@ -18,7 +18,9 @@ export default {
 
     // CORS preflight
     if (method === 'OPTIONS') {
-      return corsResponse(new Response(null, { status: 204 }), request);
+      return corsResponse(new Response(null, { status: 204 }), request, {
+        publicRoute: isPublicCorsPath(url.pathname)
+      });
     }
 
     // Health check — no auth
@@ -27,13 +29,13 @@ export default {
         status: 'ok',
         service: 'divine-moderation-api',
         timestamp: new Date().toISOString()
-      }), request);
+      }), request, { publicRoute: true });
     }
 
     // Public result endpoint for clients such as divine-mobile.
     if (method === 'GET' && url.pathname.startsWith('/check-result/')) {
       const sha256 = url.pathname.split('/')[2];
-      return corsResponse(await handleCheckResult(sha256, env), request);
+      return corsResponse(await handleCheckResult(sha256, env), request, { publicRoute: true });
     }
 
     // All other endpoints require auth
@@ -481,8 +483,13 @@ function jsonResponse(status, data) {
 const APP_ORIGIN = 'https://app.divine.video';
 const PREVIEW_SUFFIX = '.openvine-app.pages.dev';
 const ALLOW_METHODS = 'GET, POST, PUT, DELETE, OPTIONS';
-const ALLOW_HEADERS = 'Content-Type, Authorization, X-Requested-With';
+const PUBLIC_ALLOW_HEADERS = 'Content-Type, X-Requested-With';
+const PROTECTED_ALLOW_HEADERS = 'Content-Type, Authorization, X-Requested-With';
 const MAX_AGE = '86400';
+
+function isPublicCorsPath(pathname) {
+  return pathname === '/health' || pathname.startsWith('/check-result/');
+}
 
 function resolveCorsOrigin(request) {
   const origin = request.headers.get('Origin');
@@ -520,15 +527,17 @@ function appendVary(headers, value) {
   }
 }
 
-function corsResponse(response, request) {
+function corsResponse(response, request, { publicRoute = false } = {}) {
   const headers = new Headers(response.headers);
   const allowedOrigin = resolveCorsOrigin(request);
 
   headers.set('Access-Control-Allow-Methods', ALLOW_METHODS);
-  headers.set('Access-Control-Allow-Headers', ALLOW_HEADERS);
+  headers.set('Access-Control-Allow-Headers', publicRoute ? PUBLIC_ALLOW_HEADERS : PROTECTED_ALLOW_HEADERS);
   headers.set('Access-Control-Max-Age', MAX_AGE);
 
-  if (allowedOrigin) {
+  if (publicRoute) {
+    headers.set('Access-Control-Allow-Origin', '*');
+  } else if (allowedOrigin) {
     headers.set('Access-Control-Allow-Origin', allowedOrigin);
     appendVary(headers, 'Origin');
   } else {

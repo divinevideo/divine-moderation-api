@@ -158,7 +158,7 @@ At least one must be set, or authenticated endpoints return `500`.
 wrangler secret put API_BEARER_TOKEN
 ```
 
-**CORS:** cross-origin responses are restricted. The Worker echoes `Access-Control-Allow-Origin` only for `https://app.divine.video` and HTTPS preview deployments on the `*.openvine-app.pages.dev` domain; all other origins receive no allow-origin header.
+**CORS:** public endpoints (`/health` and `/check-result/:sha256`) return `Access-Control-Allow-Origin: *`. Authenticated `/api/v1/*` endpoints remain restricted: the Worker echoes `Access-Control-Allow-Origin` only for `https://app.divine.video` and HTTPS preview deployments on the `*.openvine-app.pages.dev` domain; all other origins receive no allow-origin header.
 
 ## Deployment
 
