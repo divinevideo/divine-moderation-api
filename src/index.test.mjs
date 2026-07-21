@@ -40,13 +40,34 @@ function createEnv(overrides = {}) {
 }
 
 describe('divine-moderation-api', () => {
-  it('echoes approved app origin on preflight', async () => {
+  it('uses wildcard cors on public preflight', async () => {
     const response = await worker.fetch(
       new Request('https://moderation-api.divine.video/health', {
         method: 'OPTIONS',
         headers: {
-          'Origin': 'https://app.divine.video',
+          'Origin': 'https://evil.example',
           'Access-Control-Request-Method': 'GET',
+          'Access-Control-Request-Headers': 'Content-Type,X-Requested-With'
+        }
+      }),
+      createEnv()
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, PUT, DELETE, OPTIONS');
+    expect(response.headers.get('Access-Control-Allow-Headers')).toBe('Content-Type, X-Requested-With');
+    expect(response.headers.get('Access-Control-Max-Age')).toBe('86400');
+    expect(response.headers.get('Vary')).toBeNull();
+  });
+
+  it('echoes approved app origin on protected preflight', async () => {
+    const response = await worker.fetch(
+      new Request('https://moderation-api.divine.video/api/v1/scan', {
+        method: 'OPTIONS',
+        headers: {
+          'Origin': 'https://app.divine.video',
+          'Access-Control-Request-Method': 'POST',
           'Access-Control-Request-Headers': 'Content-Type,Authorization,X-Requested-With'
         }
       }),
@@ -61,13 +82,30 @@ describe('divine-moderation-api', () => {
     expect(response.headers.get('Vary')).toBe('Origin');
   });
 
-  it('does not allow unknown origins on preflight', async () => {
+  it('does not allow unknown origins on protected preflight', async () => {
     const response = await worker.fetch(
-      new Request('https://moderation-api.divine.video/health', {
+      new Request('https://moderation-api.divine.video/api/v1/scan', {
         method: 'OPTIONS',
         headers: {
           'Origin': 'https://evil.example',
-          'Access-Control-Request-Method': 'GET',
+          'Access-Control-Request-Method': 'POST',
+          'Access-Control-Request-Headers': 'Content-Type,Authorization,X-Requested-With'
+        }
+      }),
+      createEnv()
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+  });
+
+  it('does not allow the preview apex on protected preflight', async () => {
+    const response = await worker.fetch(
+      new Request('https://moderation-api.divine.video/api/v1/scan', {
+        method: 'OPTIONS',
+        headers: {
+          'Origin': 'https://openvine-app.pages.dev',
+          'Access-Control-Request-Method': 'POST',
           'Access-Control-Request-Headers': 'Content-Type,Authorization,X-Requested-With'
         }
       }),
@@ -100,7 +138,7 @@ describe('divine-moderation-api', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     await expect(response.json()).resolves.toMatchObject({
       sha256: SHA256,
       moderated: true,
@@ -109,7 +147,7 @@ describe('divine-moderation-api', () => {
     });
   });
 
-  it('echoes preview origin on actual responses', async () => {
+  it('uses wildcard cors on public actual responses', async () => {
     const response = await worker.fetch(
       new Request(`https://moderation-api.divine.video/check-result/${SHA256}`, {
         headers: {
@@ -119,10 +157,26 @@ describe('divine-moderation-api', () => {
       createEnv()
     );
 
-    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://pr-123.openvine-app.pages.dev');
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, PUT, DELETE, OPTIONS');
+    expect(response.headers.get('Access-Control-Allow-Headers')).toBe('Content-Type, X-Requested-With');
+    expect(response.headers.get('Vary')).toBeNull();
+  });
+
+  it('does not allow unknown origins on protected actual responses', async () => {
+    const response = await worker.fetch(
+      new Request(`https://moderation-api.divine.video/api/v1/status/${SHA256}`, {
+        headers: {
+          'Authorization': 'Bearer legacy-token',
+          'Origin': 'https://evil.example'
+        }
+      }),
+      createEnv()
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
     expect(response.headers.get('Access-Control-Allow-Headers')).toBe('Content-Type, Authorization, X-Requested-With');
-    expect(response.headers.get('Vary')).toBe('Origin');
   });
 
   it('accepts SERVICE_API_TOKEN as bearer auth', async () => {
